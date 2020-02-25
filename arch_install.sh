@@ -79,8 +79,8 @@ install_packages() {
 	deamons+=' iptables libvirtd'
 
 	# Network
-	packages+=' networkmanager wpa_supplicant wireless_tools'
-	deamons+=' NetworkManager wpa_supplicant'
+	packages+=' iwd dhcpcd'
+	deamons+=' dhcpcd'
 
 	# Fonts
 	packages+=' ttf-inconsolata ttf-dejavu ttf-font-awesome ttf-joypixels'
@@ -100,11 +100,14 @@ install_packages() {
 	# Multimedia
 	packages+=' mpv mpd mpc ncmpcpp'
 
+	# For laptops
+    packages+=' xf86-input-libinput'
+
 	# Office
 	packages+=' libreoffice-still zathura zathura-pdf-mupdf'
 
 	# Bluetooth
-	packages+=' bluez bluez-libs bluez-utils pulseaudio-bluetooth blueberry'
+	packages+=' bluez bluez-libs bluez-utils pulseaudio-bluetooth'
 	deamons+=' bluetooth'
 
 	# Printers
@@ -135,6 +138,7 @@ install_packages() {
 
 	# Configure
 	sed -i 's/#AutoEnable=false/AutoEnable=true/g' /etc/bluetooth/main.conf
+	rfkill unblock bluetooth
 
 	# Demons
 	systemctl enable $deamons
