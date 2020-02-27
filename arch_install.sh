@@ -107,7 +107,7 @@ install_packages() {
 	packages+=' libreoffice-still zathura zathura-pdf-mupdf'
 
 	# Bluetooth
-	packages+=' bluez bluez-libs bluez-utils pulseaudio-bluetooth'
+	packages+=' bluez bluez-utils pulseaudio-bluetooth'
 	deamons+=' bluetooth'
 
 	# Printers
@@ -148,6 +148,46 @@ install_packages() {
 
 	# Shell
 	chsh $USER_NAME -s /usr/bin/zsh
+}
+
+# Customize to install your dotfiles
+install_dotfiles() {
+	local url="$1"
+	shift
+	sudo -i -u $USER_NAME bash <<EOF
+	# update directories
+	xdg-user-dirs-update
+
+	# clone repo && stow
+	git clone $url /home/$USER_NAME/Dotfiles
+	cd /home/$USER_NAME/Dotfiles
+	git submodule update --init --recursive
+	rm /home/$USER_NAME/.bashrc /home/$USER_NAME/.bash_profile
+	stow --no-folding --dir /home/$USER_NAME/Dotfiles -Sv config -t /home/$USER_NAME
+
+	# fzf
+	yes | /home/$USER_NAME/.fzf/install
+
+	# vim
+	nvim --headless -c PlugInstall -c q -c q
+
+	# dmenu
+	cd /home/"$USER_NAME"/.config/dmenu/dmenu-4.9/
+	echo "$USER_PASSWORD" | sudo -S make clean install
+
+	cd /home/$USER_NAME/.config/dmenu/j4-dmenu-desktop
+	cmake .
+	make
+	echo "$USER_PASSWORD" | sudo -S make install
+
+	# cron
+	(crontab -l 2>/dev/null; echo "0,30 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/checkup") | crontab -
+	(crontab -l 2>/dev/null; echo "*/5 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/cronbat") | crontab -
+EOF
+	# issue
+	cd /etc
+	mv issue issue-old
+	/home/$USER_NAME/.local/bin/utilities/makeissue
 }
 
 #=======
@@ -417,45 +457,6 @@ set_makepkg() {
 	numberofcores=$(grep -c ^processor /proc/cpuinfo)
 	sed -i "s/#MAKEFLAGS=\"-j2\"/MAKEFLAGS=\"-j$((numberofcores + 1))\"/g" /etc/makepkg.conf
 	sed -i "s/COMPRESSXZ=(xz -c -z -)/COMPRESSXZ=(xz -c -T $numberofcores -z -)/g" /etc/makepkg.conf
-}
-
-install_dotfiles() {
-	local url="$1"
-	shift
-	sudo -i -u $USER_NAME bash <<EOF
-	# update directories
-	xdg-user-dirs-update
-
-	# clone repo && stow
-	git clone $url /home/$USER_NAME/Dotfiles
-	cd /home/$USER_NAME/Dotfiles
-	git submodule update --init --recursive
-	rm /home/$USER_NAME/.bashrc /home/$USER_NAME/.bash_profile
-	stow --no-folding --dir /home/$USER_NAME/Dotfiles -Sv config -t /home/$USER_NAME
-
-	# fzf
-	yes | /home/$USER_NAME/.fzf/install
-
-	# vim
-	nvim --headless -c PlugInstall -c q -c q
-
-	# dmenu
-	cd /home/"$USER_NAME"/.config/dmenu/dmenu-4.9/
-	echo "$USER_PASSWORD" | sudo -S make clean install
-
-	cd /home/$USER_NAME/.config/dmenu/j4-dmenu-desktop
-	cmake .
-	make
-	echo "$USER_PASSWORD" | sudo -S make install
-
-	# cron
-	(crontab -l 2>/dev/null; echo "0,30 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/checkup") | crontab -
-	(crontab -l 2>/dev/null; echo "*/5 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/cronbat") | crontab -
-EOF
-	# issue
-	cd /etc
-	mv issue issue-old
-	/home/$USER_NAME/.local/bin/utilities/makeissue
 }
 
 setup() {
