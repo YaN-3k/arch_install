@@ -68,7 +68,7 @@ install_packages() {
 	local deamons=''
 
 	# General utilities/libraries
-	packages+=' pkgfile reflector htop python python-pip rfkill rsync sudo unrar unzip wget zip maim ffmpeg cronie zsh stow xdg-user-dirs libnotify tlp'
+	packages+=' pkgfile reflector htop python python-pip rfkill rsync sudo unrar unzip wget zip maim ffmpeg cronie zsh stow xdg-user-dirs libnotify tlp exa'
 	deamons+='pkgfile-update.timer cronie tlp'
 
 	# Sounds
@@ -79,8 +79,8 @@ install_packages() {
 	deamons+=' iptables libvirtd'
 
 	# Network
-	packages+=' iwd dhcpcd'
-	deamons+=' dhcpcd'
+	packages+=' dhcpcd iwd'
+	deamons+=' dhcpcd iwd'
 
 	# Fonts
 	packages+=' ttf-inconsolata ttf-dejavu ttf-font-awesome ttf-joypixels'
@@ -101,7 +101,7 @@ install_packages() {
 	packages+=' mpv mpd mpc ncmpcpp'
 
 	# For laptops
-    packages+=' xf86-input-libinput'
+	packages+=' xf86-input-libinput'
 
 	# Office
 	packages+=' libreoffice-still zathura zathura-pdf-mupdf'
@@ -165,15 +165,12 @@ install_dotfiles() {
 	rm /home/$USER_NAME/.bashrc /home/$USER_NAME/.bash_profile
 	stow --no-folding --dir /home/$USER_NAME/Dotfiles -Sv config -t /home/$USER_NAME
 
-	# fzf
-	yes | /home/$USER_NAME/.fzf/install
-
 	# vim
 	nvim --headless -c PlugInstall -c q -c q
 
 	# dmenu
 	cd /home/"$USER_NAME"/.config/dmenu/dmenu-4.9/
-	echo "$USER_PASSWORD" | sudo -S make clean install
+	echo "$USER_PASSWORD" | sudo -S make install
 
 	cd /home/$USER_NAME/.config/dmenu/j4-dmenu-desktop
 	cmake .
@@ -299,9 +296,9 @@ set_hosts() {
 	shift
 	local url="https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/$hosts_file_type/hosts"
 	if curl --output /dev/null --silent --head --fail "$url"; then
-		curl "$url" > /etc/hosts
+		curl "$url" >/etc/hosts
 	elif [ "$hosts_file_type" = "unified" ]; then
-		curl "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" > /etc/hosts
+		curl "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts" >/etc/hosts
 	else
 		cat >/etc/hosts <<EOF
 127.0.0.1 localhost.localdomain localhost $hostname
