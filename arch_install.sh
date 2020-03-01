@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env sh
 
 # Drive to install to.
 DRIVE='/dev/vda'
@@ -26,7 +26,7 @@ USER_PASSWORD='a'
 SWAP_SIZE=''
 
 KEYMAP='us'
-# KEYMAP='dvorak'
+#KEYMAP='dvorak'
 
 # Choose your video driver
 # For Intel
@@ -64,72 +64,70 @@ DOTFILES_URL='https://github.com/Cherrry9/Dotfiles'
 
 # Customize to install other packages
 install_packages() {
-	local packages=''
-	local deamons=''
 
 	# General utilities/libraries
-	packages+=' pkgfile reflector htop python python-pip rfkill rsync sudo unrar unzip wget zip maim ffmpeg cronie zsh stow xdg-user-dirs libnotify tlp exa'
-	deamons+='pkgfile-update.timer cronie tlp'
+	packages="pkgfile reflector htop python python-pip rfkill rsync sudo unrar unzip wget zip maim ffmpeg cronie zsh stow xdg-user-dirs libnotify tlp exa"
+	deamons="pkgfile-update.timer cronie tlp"
 
 	# Sounds
-	packages+=' alsa-utils pulseaudio pulseaudio-alsa'
+	packages="$packages alsa-utils pulseaudio pulseaudio-alsa"
 
 	# Development packages
-	packages+=' git cmake gdb qemu libvirt virt-manager iptables ebtables dnsmasq bridge-utils openbsd-netcat ovmf'
-	deamons+=' iptables libvirtd'
+	packages="$packages git cmake gdb qemu libvirt virt-manager iptables ebtables dnsmasq bridge-utils openbsd-netcat ovmf"
+	deamons="$deamons iptables libvirtd"
 
 	# Network
-	packages+=' dhcpcd iwd'
-	deamons+=' dhcpcd iwd'
+	packages="$packages dhcpcd iwd"
+	deamons="$deamons dhcpcd iwd"
 
 	# Fonts
-	packages+=' ttf-inconsolata ttf-dejavu ttf-font-awesome ttf-joypixels'
+	packages="$packages ttf-inconsolata ttf-dejavu ttf-font-awesome ttf-joypixels"
 
 	# Xorg
-	packages+=' xorg-server xorg-xinit xorg-xsetroot xwallpaper xcape xclip slock unclutter arc-gtk-theme'
+	packages="$packages xorg-server xorg-xinit xorg-xsetroot xwallpaper xcape xclip slock unclutter arc-gtk-theme"
 
 	# WM
-	packages+=' bspwm sxhkd picom dunst polybar xdo xdotool'
+	packages="$packages bspwm sxhkd picom dunst polybar xdo xdotool"
 
 	# Browser
-	packages+=' qutebrowser'
+	packages="$packages qutebrowser"
 
 	# Terminal apps
-	packages+=' alacritty ranger-git vifm tmux neomutt abook neovim'
+	packages="$packages alacritty ranger-git vifm tmux neomutt abook neovim"
 
 	# Multimedia
-	packages+=' mpv mpd mpc ncmpcpp'
+	packages="$packages mpv mpd mpc ncmpcpp"
+
+	# Communicators
+	packages="$packages irssi telegram-desktop"
 
 	# For laptops
-	packages+=' xf86-input-libinput'
+	packages="$packages xf86-input-libinput"
 
 	# Office
-	packages+=' libreoffice-still zathura zathura-pdf-mupdf'
+	packages="$packages libreoffice-still zathura zathura-pdf-mupdf sxiv"
 
 	# Bluetooth
-	packages+=' bluez bluez-utils pulseaudio-bluetooth'
-	deamons+=' bluetooth'
+	packages="$packages bluez bluez-utils pulseaudio-bluetooth"
+	deamons="$deamons bluetooth"
 
 	# Printers
-	packages+=' ghostscript gsfonts gutenprint foomatic-db-gutenprint-ppds cups libcups system-config-printer'
-	deamons+=' cups-browsed'
-
-	# Other
-	packages+=' sxiv telegram-desktop'
+	packages="$packages ghostscript gsfonts gutenprint foomatic-db-gutenprint-ppds cups libcups system-config-printer"
+	deamons="$deamons cups-browsed"
 
 	# Video drivers
 	if [ "$VIDEO_DRIVER" = "i915" ]; then
-		packages+=' xf86-video-intel libva-intel-driver'
+		packages="$packages xf86-video-intel libva-intel-driver"
 	elif [ "$VIDEO_DRIVER" = "nouveau" ]; then
-		packages+=' xf86-video-nouveau'
+		packages="$packages xf86-video-nouveau"
 	elif [ "$VIDEO_DRIVER" = "radeon" ]; then
-		packages+=' xf86-video-ati'
+		packages="$packages xf86-video-ati"
 	elif [ "$VIDEO_DRIVER" = "vesa" ]; then
-		packages+=' xf86-video-vesa'
+		packages="$packages xf86-video-vesa"
 	fi
 
 	# Python pip
-	local pip_packages=' ueberzug pynvim msgpack'
+	pip_packages="ueberzug pynvim msgpack"
 
 	# Install
 	sudo -u $USER_NAME yay --needed --noconfirm -Syu $packages
@@ -152,7 +150,7 @@ install_packages() {
 
 # Customize to install your dotfiles
 install_dotfiles() {
-	local url="$1"
+	url="$1"
 	shift
 	sudo -i -u $USER_NAME bash <<EOF
 	# update directories
@@ -214,10 +212,10 @@ network() {
 
 calc_swap() {
 	mem_size=$(free -g | awk '/Mem/ {print $2}')
-	if ((mem_size < 1)); then
+	if [ "$mem_size" -lt 1 ]; then
 		SWAP_SIZE=1
 	else
-		SWAP_SIZE=$(bc <<<"sqrt($mem_size)")
+		SWAP_SIZE=$(echo "sqrt($mem_size)" | bc)
 	fi
 }
 
@@ -258,12 +256,12 @@ install_base() {
 }
 
 create_user() {
-	local name="$1"
+	name="$1"
 	shift
-	local password="$1"
+	password="$1"
 	shift
 	useradd -m -G adm,systemd-journal,wheel,rfkill,games,network,video,audio,optical,floppy,storage,scanner,power,sys,disk "$name"
-	echo -en "$password\n$password" | passwd "$name" &>/dev/null
+	printf "%s\n%s" "$password" "$password" | passwd "$name" >/dev/null 2>&1
 }
 
 unmount_filesystems() {
@@ -276,7 +274,7 @@ unmount_filesystems() {
 # CONFIGURE
 #===========
 set_locale() {
-	local lang="$1"
+	lang="$1"
 	shift
 	echo "${lang}.UTF-8 UTF-8" >/etc/locale.gen
 	echo "LANG=${lang}.UTF-8" >/etc/locale.conf
@@ -284,17 +282,17 @@ set_locale() {
 }
 
 set_hostname() {
-	local hostname="$1"
+	hostname="$1"
 	shift
 	echo "$hostname" >/etc/hostname
 }
 
 set_hosts() {
-	local hostname="$1"
+	hostname="$1"
 	shift
-	local hosts_file_type="$1"
+	hosts_file_type="$1"
 	shift
-	local url="https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/$hosts_file_type/hosts"
+	url="https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/$hosts_file_type/hosts"
 	if curl --output /dev/null --silent --head --fail "$url"; then
 		curl "$url" >/etc/hosts
 	elif [ "$hosts_file_type" = "unified" ]; then
@@ -308,7 +306,7 @@ EOF
 }
 
 set_keymap() {
-	local keymap="$1"
+	keymap="$1"
 	shift
 	cat >/etc/vconsole.conf <<EOF
 KEYMAP=$keymap
@@ -318,7 +316,7 @@ EOF
 }
 
 set_timezone() {
-	local timezone="$1"
+	timezone="$1"
 	shift
 	ln -sf /usr/share/zoneinfo/"$timezone" /etc/localtime
 	hwclock --systohc
@@ -326,9 +324,9 @@ set_timezone() {
 }
 
 set_root_password() {
-	local root_password="$1"
+	root_password="$1"
 	shift
-	echo -ne "$root_password\n$root_password" | passwd &>/dev/null
+	printf "%s\n%s" "$root_password" "$root_password" | passwd >/dev/null 2>&1
 }
 
 set_sudoers() {
@@ -359,7 +357,7 @@ EOF
 }
 
 set_boot() {
-	local boot_type="$1"
+	boot_type="$1"
 	shift
 	if [ -n "$boot_type" ]; then
 		pacman -Sy --noconfirm efibootmgr
@@ -450,7 +448,7 @@ EOF
 }
 
 set_makepkg() {
-	local numberofcores
+	numberofcores
 	numberofcores=$(grep -c ^processor /proc/cpuinfo)
 	sed -i "s/#MAKEFLAGS=\"-j2\"/MAKEFLAGS=\"-j$((numberofcores + 1))\"/g" /etc/makepkg.conf
 	sed -i "s/COMPRESSXZ=(xz -c -z -)/COMPRESSXZ=(xz -c -T $numberofcores -z -)/g" /etc/makepkg.conf
@@ -463,8 +461,9 @@ setup() {
 	network
 
 	if [ -e "$DRIVE" ]; then
-		read -rp "$DRIVE :: Are you sure? This disk will be formatted: [yes/no] " choice
-		[[ ! ${choice:0:1} = [yY] ]] && exit
+		printf "%s :: Are you sure? This disk will be formatted: [yes/no] " "$DRIVE"
+		read -r choice
+		[ ! "$choice" = "y" ] && exit
 	else
 		echo "$DRIVE :: Device doesn't exist!"
 		exit 1
@@ -506,20 +505,23 @@ setup() {
 
 configure() {
 	# EFI or LEGACY
-	local BOOT_TYPE="$1"
+	BOOT_TYPE="$1"
 	shift
 
 	echo "Setting locale"
 	set_locale "$LANG"
 
 	echo "Setting time zone"
-	if [[ -z "$TIMEZONE" || ! -f "/usr/share/zoneinfo/$TIMEZONE" ]]; then
+	if [ -z "$TIMEZONE" ] || [ ! -f "/usr/share/zoneinfo/$TIMEZONE" ]; then
 		TIMEZONE=$(tzselect)
 	fi
 	set_timezone "$TIMEZONE"
 
 	echo "Setting hostname"
-	[ -z "$HOSTNAME" ] && read -rp "Enter the hostname: " HOSTNAME
+	if [ -z "$HOSTNAME" ]; then
+		printf "Enter the hostname: "
+		read -r HOSTNAME
+	fi
 	set_hostname "$HOSTNAME"
 
 	echo "Setting hosts"
@@ -532,12 +534,21 @@ configure() {
 	set_boot "$BOOT_TYPE"
 
 	echo 'Setting root password'
-	[ -z "$ROOT_PASSWORD" ] && read -rp "Enter the root password: " ROOT_PASSWORD
+	if [ -z "$ROOT_PASSWORD" ]; then
+		printf "Enter the root password: "
+		read -r ROOT_PASSWORD
+	fi
 	set_root_password "$ROOT_PASSWORD"
 
 	echo 'Creating initial user'
-	[ -z "$USER_NAME" ] && read -rp "Enter the user name: " USER_NAME
-	[ -z "$USER_PASSWORD" ] && read -rp "Enter the password for user $USER_NAME: " USER_PASSWORD
+	if [ -z "$USER_NAME" ]; then
+		printf "Enter the user name: "
+		read -r USER_NAME
+	fi
+	if [ -z "$USER_PASSWORD" ]; then
+		printf "Enter the password for user %s: " "$USER_NAME"
+		read -r USER_PASSWORD
+	fi
 	create_user "$USER_NAME" "$USER_PASSWORD"
 
 	echo 'Setting sudoers'

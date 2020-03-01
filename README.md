@@ -1,4 +1,4 @@
-# Simple Arch installation script in bash
+# Simple Arch installation script in POSIX sh
 Clone script
 ```
 git clone https://github.com/Cherrry9/arch_install
