@@ -1,7 +1,16 @@
 #!/usr/bin/env sh
 
-# Drive to install to.
-DRIVE='/dev/vda'
+# Drives to install to.
+DRIVE='/dev/sda'
+DRIVE2='/dev/sdb' # set 0 if you have only one drive
+
+# Partitions
+# HOME (set 0 to not create home partition).
+HOMEPARTSIZE='0' #GB (recommend 10GB)
+# VAR (set 0 to not create var partition).
+VARPARTSIZE='0' #GB (recommend 5GB)
+# Drive for this additional partitions.
+ADDPARTSONDRIVE='$DRIVE2'
 
 # System language.
 LANG='en_US'
@@ -220,13 +229,42 @@ calc_swap() {
 }
 
 bios() {
-	parted -s "$DRIVE" mklabel msdos \
-		mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
-		mkpart primary ext4 "${SWAP_SIZE}GiB" 100%
-	mkswap "${DRIVE}1"
-	swapon "${DRIVE}1"
-	mkfs.ext4 "${DRIVE}2"
-	mount "${DRIVE}2" /mnt
+	if [ "$ADDPARTSONDRIVE" != "$DRIVE" ]; then
+		parted -s "$DRIVE2" mklabel msdos \
+			$(if [ "$HOMEPARTSIZE" -gt 0 ]; then mkpart primary ext4 1 "${HOMEPARTSIZE}GiB"; fi) \
+			$(if [ "$VARPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${HOMEPARTSIZE}GiB" "${VARPARTSIZE}GiB"; fi)
+		parted -s "$DRIVE" mklabel msdos \
+			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
+			mkpart primary ext4 "${SWAP_SIZE}GiB" 100% 
+		mkswap "${DRIVE}1"
+		swapon "${DRIVE}1"
+		mkfs.ext4 "${DRIVE}2"
+		mkfs.ext4 "${DRIVE2}1"
+		mkfs.ext4 "${DRIVE2}2"
+		mount "${DRIVE}2" /mnt
+		mount "${DRIVE2}1" /mnt/home
+		mount "${DRIVE2}2" /mnt/var
+
+	elif [ "$ADDPARTSONDRIVE" -eq "$DRIVE" ]; then
+		parted -s "$DRIVE" mklabel msdos \
+			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
+			$(if [ "$HOMEPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${SWAP_SIZE}GiB" "${HOMEPARTSIZE}GiB"; fi) \
+			$(if [ "$VARPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${HOMEPARTSIZE}GiB" "${VARPARTSIZE}GiB"; fi) \
+			mkpart primary ext4 "${VARPARTSIZE}GiB" 100%
+		mkswap "${DRIVE}1"
+		swapon "${DRIVE}1"
+		mkfs.ext4 "${DRIVE}2"
+		mkfs.ext4 "${DRIVE}3"
+		mkfs.ext4 "${DRIVE}4"
+	else
+		parted -s "$DRIVE" mklabel msdos \
+			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
+			mkpart primary ext4 "${SWAP_SIZE}GiB" 100% 
+		mkswap "${DRIVE}1"
+		swapon "${DRIVE}1"
+		mkfs.ext4 "${DRIVE}2"
+		mount "${DRIVE}2" /mnt
+	fi
 }
 
 efi() {
