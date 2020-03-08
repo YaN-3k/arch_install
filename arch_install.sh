@@ -2,15 +2,16 @@
 
 # Drives to install to.
 DRIVE='/dev/sda'
-DRIVE2='/dev/sdb' # set 0 if you have only one drive
 
-# Partitions
-# HOME (set 0 to not create home partition).
-HOMEPARTSIZE='0' #GB (recommend 10GB)
-# VAR (set 0 to not create var partition).
-VARPARTSIZE='0' #GB (recommend 5GB)
-# Drive for this additional partitions.
-ADDPARTSONDRIVE='$DRIVE2'
+# Partitions:
+# HOME (set 0 or leave blank to not create home partition).
+HOME_SIZE='' #GB (recommend 10GB)
+
+# VAR (set 0 or leave blank to not create var partition).
+VAR_SIZE='' #GB (recommend 5GB)
+
+# SWAP (set 0 or leave blank to not create swap partition).)
+SWAP_SIZE='' #GB (recommend square root of ram)
 
 # System language.
 LANG='en_US'
@@ -29,10 +30,6 @@ USER_NAME='a'
 
 # The main user's password (leave blank to be prompted).
 USER_PASSWORD='a'
-
-# If it isn't initialized,
-# will calculate the square root of memory for the swap size
-SWAP_SIZE=''
 
 KEYMAP='us'
 #KEYMAP='dvorak'
@@ -219,51 +216,65 @@ network() {
 	timedatectl set-ntp true
 }
 
-calc_swap() {
-	mem_size=$(free -g | awk '/Mem/ {print $2}')
-	if [ "$mem_size" -lt 1 ]; then
-		SWAP_SIZE=1
-	else
-		SWAP_SIZE=$(echo "sqrt($mem_size)" | bc)
-	fi
-}
-
 bios() {
-	if [ "$ADDPARTSONDRIVE" != "$DRIVE" ]; then
-		parted -s "$DRIVE2" mklabel msdos \
-			$(if [ "$HOMEPARTSIZE" -gt 0 ]; then mkpart primary ext4 1 "${HOMEPARTSIZE}GiB"; fi) \
-			$(if [ "$VARPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${HOMEPARTSIZE}GiB" "${VARPARTSIZE}GiB"; fi)
-		parted -s "$DRIVE" mklabel msdos \
-			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
-			mkpart primary ext4 "${SWAP_SIZE}GiB" 100% 
-		mkswap "${DRIVE}1"
-		swapon "${DRIVE}1"
-		mkfs.ext4 "${DRIVE}2"
-		mkfs.ext4 "${DRIVE2}1"
-		mkfs.ext4 "${DRIVE2}2"
-		mount "${DRIVE}2" /mnt
-		mount "${DRIVE2}1" /mnt/home
-		mount "${DRIVE2}2" /mnt/var
+	# calc end
+	[ "$SWAP_SIZE" -gt 0 ] &&
+		SWAP_END="$((SWAP_SIZE))" ||
+		SWAP_END=1
 
-	elif [ "$ADDPARTSONDRIVE" -eq "$DRIVE" ]; then
-		parted -s "$DRIVE" mklabel msdos \
-			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
-			$(if [ "$HOMEPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${SWAP_SIZE}GiB" "${HOMEPARTSIZE}GiB"; fi) \
-			$(if [ "$VARPARTSIZE" -gt 0 ]; then mkpart primary ext4 "${HOMEPARTSIZE}GiB" "${VARPARTSIZE}GiB"; fi) \
-			mkpart primary ext4 "${VARPARTSIZE}GiB" 100%
-		mkswap "${DRIVE}1"
-		swapon "${DRIVE}1"
-		mkfs.ext4 "${DRIVE}2"
-		mkfs.ext4 "${DRIVE}3"
-		mkfs.ext4 "${DRIVE}4"
-	else
-		parted -s "$DRIVE" mklabel msdos \
-			mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
-			mkpart primary ext4 "${SWAP_SIZE}GiB" 100% 
-		mkswap "${DRIVE}1"
-		swapon "${DRIVE}1"
-		mkfs.ext4 "${DRIVE}2"
-		mount "${DRIVE}2" /mnt
+	[ "$HOME_SIZE" -gt 0 ] &&
+		HOME_END="$((HOME_SIZE + SWAP_SIZE))" ||
+		HOME_END="$SWAP_END"
+
+	[ "$VAR_SIZE" -gt 0 ] &&
+		VAR_END="$((VAR_SIZE + HOME_END))" ||
+		VAR_END="$HOME_END"
+
+	# mbr label
+	parted -s "$DRIVE" mklabel msdos
+	next_part=1
+
+	# swap
+	if [ "$SWAP_SIZE" -gt 0 ]; then
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary linux-swap 1 "${SWAP_END}GiB"
+		swap="${DRIVE}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# home
+	if [ "$HOME_SIZE" -gt 0 ]; then
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${SWAP_END}GiB" "${HOME_END}GiB"
+		home="${DRIVE}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# var
+	if [ "$VAR_SIZE" -gt 0 ]; then
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${HOME_END}GiB" "${VAR_END}GiB"
+		var="${DRIVE}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# root
+	parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${VAR_END}GiB" 100%
+	root="${DRIVE}$next_part"
+
+	# format && mount
+	yes | mkfs.ext4 "$root"
+	mount "$root" /mnt
+	if [ -n "$swap" ]; then
+		mkswap "$swap"
+		swapon "$swap"
+	fi
+	if [ -n "$home" ]; then
+		mkdir -p /mnt/home
+		yes | mkfs.ext4 "$home"
+		mount "$home" /mnt/home
+	fi
+	if [ -n "$var" ]; then
+		mkdir -p /mnt/var
+		yes | mkfs.ext4 "$var"
+		mount "$var" /mnt/var
 	fi
 }
 
@@ -303,9 +314,9 @@ create_user() {
 }
 
 unmount_filesystems() {
-	umount -R /mnt
 	swap=$(lsblk -nrp | awk '/SWAP/ {print $1}')
-	swapoff "$swap"
+	[ -n "$swap" ] && swapoff "$swap"
+	umount -R /mnt
 }
 
 #===========
@@ -507,8 +518,6 @@ setup() {
 		exit 1
 	fi
 
-	[ -z "$SWAP_SIZE" ] && calc_swap
-
 	mkdir -p /mnt
 
 	BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
@@ -609,9 +618,6 @@ configure() {
 
 	echo 'Updating pkgfile database'
 	update_pkgfile
-
-	echo 'Installing dotfiles'
-	install_dotfiles "$DOTFILES_URL"
 
 	rm /setup.sh
 }
