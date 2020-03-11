@@ -1,7 +1,21 @@
 #!/usr/bin/env sh
 
-# Drive to install to.
-DRIVE='/dev/vda'
+# Drives to install to.
+DRIVE='/dev/sda'
+
+# Partitions:
+# HOME (set 0 or leave blank to not create home partition).
+HOME_SIZE='' #GB (recommend 10GB)
+
+# VAR (set 0 or leave blank to not create var partition).
+VAR_SIZE=''  #GB (recommend 5GB)
+
+# SWAP (set 0 or leave blank to not create swap partition).
+SWAP_SIZE='' #GB (recommend square root of ram)
+
+# EFI (set 0 or leave blank to not create efi partition).
+# is used if the system is to be installed on "uefi"
+EFI_SIZE=''  #MB (recommend 512MB)
 
 # System language.
 LANG='en_US'
@@ -20,10 +34,6 @@ USER_NAME='a'
 
 # The main user's password (leave blank to be prompted).
 USER_PASSWORD='a'
-
-# If it isn't initialized,
-# will calculate the square root of memory for the swap size
-SWAP_SIZE=''
 
 KEYMAP='us'
 #KEYMAP='dvorak'
@@ -58,9 +68,6 @@ VIDEO_DRIVER="i915"
 # gambling-porn-social
 # fakenews-gambling-porn-social
 HOSTS_FILE_TYPE="unified"
-
-# Dotfiles url
-DOTFILES_URL='https://github.com/Cherrry9/Dotfiles'
 
 # Customize to install other packages
 install_packages() {
@@ -148,49 +155,11 @@ install_packages() {
 	chsh $USER_NAME -s /usr/bin/zsh
 }
 
-# Customize to install your dotfiles
-install_dotfiles() {
-	url="$1"
-	shift
-	sudo -i -u $USER_NAME bash <<EOF
-	# update directories
-	xdg-user-dirs-update
-
-	# clone repo && stow
-	git clone $url /home/$USER_NAME/Dotfiles
-	cd /home/$USER_NAME/Dotfiles
-	git submodule update --init --recursive
-	rm /home/$USER_NAME/.bashrc /home/$USER_NAME/.bash_profile
-	stow --no-folding --dir /home/$USER_NAME/Dotfiles -Sv config -t /home/$USER_NAME
-
-	# vim
-	nvim --headless -c PlugInstall -c q -c q
-
-	# dmenu
-	cd /home/"$USER_NAME"/.config/dmenu/dmenu-4.9/
-	echo "$USER_PASSWORD" | sudo -S make install
-
-	cd /home/$USER_NAME/.config/dmenu/j4-dmenu-desktop
-	cmake .
-	make
-	echo "$USER_PASSWORD" | sudo -S make install
-
-	# cron
-	(crontab -l 2>/dev/null; echo "0,30 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/checkup") | crontab -
-	(crontab -l 2>/dev/null; echo "*/5 * * * * export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus; export DISPLAY=:0; /home/$USER_NAME/.local/bin/cron/cronbat") | crontab -
-EOF
-	# issue
-	cd /etc
-	mv issue issue-old
-	/home/$USER_NAME/.local/bin/utilities/makeissue
-}
-
 #=======
 # SETUP
 #=======
 greeter() {
 	cat <<EOF
-
        /\\
       /  \\
      /\\   \\      Script written by Cherrry9
@@ -198,7 +167,6 @@ greeter() {
    /  '  '  \\
   / ..'  '.. \\
  /_\`        \`_\\
-
 EOF
 }
 
@@ -210,38 +178,110 @@ network() {
 	timedatectl set-ntp true
 }
 
-calc_swap() {
-	mem_size=$(free -g | awk '/Mem/ {print $2}')
-	if [ "$mem_size" -lt 1 ]; then
-		SWAP_SIZE=1
+prepare_disk() {
+	drive="$1"
+	boot_type="$2"
+	efi_size="$3"
+	swap_size="$4"
+	home_size="$5"
+	var_size="$6"
+
+	# calc end
+	case $(echo "$efi_size > 0" | bc) in
+	1) efi_end="$efi_size" ;;
+	*) efi_end=512 ;;
+	esac
+
+	case $(echo "$swap_size > 0" | bc) in
+	1)
+		swap_end=$(echo "$swap_size * 1024 + $efi_end" | bc)
+		swap="yes"
+		;;
+	*) swap_end="$efi_end" ;;
+	esac
+
+	case $(echo "$home_size > 0" | bc) in
+	1)
+		home_end=$(echo "$home_size * 1024 + $swap_end" | bc)
+		home="yes"
+		;;
+	*) home_end="$swap_end" ;;
+	esac
+
+	case $(echo "$var_size > 0" | bc) in
+	1)
+		var_end=$(echo "$var_size  * 1024 + $home_end" | bc)
+		var="yes"
+		;;
+	*) var_end="$home_end" ;;
+	esac
+
+	# label mbr/gpt
+	next_part=1
+	if [ -n "$boot_type" ]; then
+		echo "Detected EFI boot"
+		parted -s "$drive" mklabel gpt
 	else
-		SWAP_SIZE=$(echo "sqrt($mem_size)" | bc)
+		echo "Detected legacy boot"
+		parted -s "$drive" mklabel msdos
 	fi
-}
 
-bios() {
-	parted -s "$DRIVE" mklabel msdos \
-		mkpart primary linux-swap 1 "${SWAP_SIZE}GiB" \
-		mkpart primary ext4 "${SWAP_SIZE}GiB" 100%
-	mkswap "${DRIVE}1"
-	swapon "${DRIVE}1"
-	mkfs.ext4 "${DRIVE}2"
-	mount "${DRIVE}2" /mnt
-}
+	# efi
+	if [ -n "$boot_type" ]; then
+		parted -s "$drive" select "$drive" mkpart primary fat32 1 "${efi_end}MiB"
+		efi="${drive}$next_part"
+		next_part=$((next_part + 1))
+	fi
 
-efi() {
-	SWAP_END="$(echo "$SWAP_SIZE * 1024 + 513" | bc)MiB"
-	sudo parted -s "$DRIVE" mklabel gpt \
-		mkpart primary fat32 1 513MiB \
-		mkpart primary linux-swap 513MiB "$SWAP_END" \
-		mkpart primary ext4 "$SWAP_END" 100%
-	mkfs.fat -F32 "${DRIVE}1"
-	mkswap "${DRIVE}2"
-	swapon "${DRIVE}2"
-	mkfs.ext4 "${DRIVE}3"
-	mount "${DRIVE}3" /mnt
-	mkdir -p /mnt/boot/efi
-	mount "${DRIVE}1" /mnt/boot/efi
+	# swap
+	if [ -n "$swap" ]; then
+		parted -s "$drive" select "$drive" mkpart primary linux-swap "${efi_size}MiB" "${swap_end}MiB"
+		swap="${drive}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# home
+	if [ -n "$home" ]; then
+		parted -s "$drive" select "$drive" mkpart primary ext4 "${swap_end}MiB" "${home_end}MiB"
+		home="${drive}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# var
+	if [ -n "$var" ]; then
+		parted -s "$drive" select "$drive" mkpart primary ext4 "${home_end}MiB" "${var_end}MiB"
+		var="${drive}$next_part"
+		next_part=$((next_part + 1))
+	fi
+
+	# root
+	parted -s "$drive" select "$drive" mkpart primary ext4 "${var_end}MiB" 100%
+	root="${drive}$next_part"
+
+	# format && mount
+	mkdir -p /mnt
+	yes | mkfs.ext4 "$root"
+	mount "$root" /mnt
+
+	if [ -n "$efi" ]; then
+		mkdir -p /mnt/boot/efi
+		mkfs.fat -F32 "$efi"
+		mount "$efi" /mnt/boot/efi
+	fi
+	if [ -n "$swap" ]; then
+		mkswap "$swap"
+		swapon "$swap"
+	fi
+	if [ -n "$home" ]; then
+		mkdir -p /mnt/home
+		yes | mkfs.ext4 "$home"
+		mount "$home" /mnt/home
+	fi
+	if [ -n "$var" ]; then
+		mkdir -p /mnt/var
+		yes | mkfs.ext4 "$var"
+		mount "$var" /mnt/var
+	fi
 }
 
 set_mirrorlist() {
@@ -257,17 +297,15 @@ install_base() {
 
 create_user() {
 	name="$1"
-	shift
-	password="$1"
-	shift
+	password="$2"
 	useradd -m -G adm,systemd-journal,wheel,rfkill,games,network,video,audio,optical,floppy,storage,scanner,power,sys,disk "$name"
 	printf "%s\n%s" "$password" "$password" | passwd "$name" >/dev/null 2>&1
 }
 
 unmount_filesystems() {
-	umount -R /mnt
 	swap=$(lsblk -nrp | awk '/SWAP/ {print $1}')
-	swapoff "$swap"
+	[ -n "$swap" ] && swapoff "$swap"
+	umount -R /mnt
 }
 
 #===========
@@ -275,7 +313,6 @@ unmount_filesystems() {
 #===========
 set_locale() {
 	lang="$1"
-	shift
 	echo "${lang}.UTF-8 UTF-8" >/etc/locale.gen
 	echo "LANG=${lang}.UTF-8" >/etc/locale.conf
 	locale-gen
@@ -283,15 +320,12 @@ set_locale() {
 
 set_hostname() {
 	hostname="$1"
-	shift
 	echo "$hostname" >/etc/hostname
 }
 
 set_hosts() {
 	hostname="$1"
-	shift
-	hosts_file_type="$1"
-	shift
+	hosts_file_type="$2"
 	url="https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/$hosts_file_type/hosts"
 	if curl --output /dev/null --silent --head --fail "$url"; then
 		curl "$url" >/etc/hosts
@@ -307,7 +341,6 @@ EOF
 
 set_keymap() {
 	keymap="$1"
-	shift
 	cat >/etc/vconsole.conf <<EOF
 KEYMAP=$keymap
 FONT=Lat2-Terminus16.psfu.gz
@@ -317,7 +350,6 @@ EOF
 
 set_timezone() {
 	timezone="$1"
-	shift
 	ln -sf /usr/share/zoneinfo/"$timezone" /etc/localtime
 	hwclock --systohc
 
@@ -325,7 +357,6 @@ set_timezone() {
 
 set_root_password() {
 	root_password="$1"
-	shift
 	printf "%s\n%s" "$root_password" "$root_password" | passwd >/dev/null 2>&1
 }
 
@@ -337,18 +368,13 @@ set_sudoers() {
 #
 # See the man page for details on how to write a sudoers file.
 #
-
 Defaults env_reset
 Defaults pwfeedback
 Defaults lecture="always"
 Defaults lecture_file="/home/$USER_NAME/.local/share/sudoers.bee"
-
 # Host alias specification
-
 # User alias specification
-
 # Cmnd alias specification
-
 # User privilege specification
 root   ALL=(ALL) ALL
 %wheel ALL=(ALL) ALL
@@ -358,7 +384,6 @@ EOF
 
 set_boot() {
 	boot_type="$1"
-	shift
 	if [ -n "$boot_type" ]; then
 		pacman -Sy --noconfirm efibootmgr
 		grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
@@ -391,7 +416,6 @@ set_pacman() {
 # /etc/pacman.conf
 #
 # See the pacman.conf(5) manpage for option and repository directives
-
 [options]
 #RootDir     = /
 #DBPath      = /var/lib/pacman/
@@ -404,14 +428,11 @@ HoldPkg     = pacman glibc
 #XferCommand = /usr/bin/wget --passive-ftp -c -O %o %u
 #CleanMethod = KeepInstalled
 Architecture = auto
-
 # Pacman won't upgrade packages listed in IgnorePkg and members of IgnoreGroup
 #IgnorePkg   =
 #IgnoreGroup =
-
 #NoUpgrade   =
 #NoExtract   =
-
 # Misc options
 #UseSyslog
 Color
@@ -419,29 +440,21 @@ TotalDownload
 CheckSpace
 VerbosePkgLists
 ILoveCandy
-
 SigLevel    = Required DatabaseOptional
 LocalFileSigLevel = Optional
 #RemoteFileSigLevel = Required
-
 #[testing]
 #Include = /etc/pacman.d/mirrorlist
-
 [core]
 Include = /etc/pacman.d/mirrorlist
-
 [extra]
 Include = /etc/pacman.d/mirrorlist
-
 #[community-testing]
 #Include = /etc/pacman.d/mirrorlist
-
 [community]
 Include = /etc/pacman.d/mirrorlist
-
 #[multilib-testing]
 #Include = /etc/pacman.d/mirrorlist
-
 #[multilib]
 #Include = /etc/pacman.d/mirrorlist
 EOF
@@ -469,18 +482,10 @@ setup() {
 		exit 1
 	fi
 
-	[ -z "$SWAP_SIZE" ] && calc_swap
-
 	mkdir -p /mnt
 
 	BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
-	if [ -n "$BOOT_TYPE" ]; then
-		echo "Detected EFI boot"
-		efi
-	else
-		echo "Detected legacy boot"
-		bios
-	fi
+	prepare_disk "$DRIVE" "$BOOT_TYPE" "$EFI_SIZE" "$SWAP_SIZE" "$HOME_SIZE" "$VAR_SIZE"
 
 	echo "Setting mirrorlist"
 	set_mirrorlist
@@ -506,7 +511,6 @@ setup() {
 configure() {
 	# EFI or LEGACY
 	BOOT_TYPE="$1"
-	shift
 
 	echo "Setting locale"
 	set_locale "$LANG"
@@ -571,9 +575,6 @@ configure() {
 
 	echo 'Updating pkgfile database'
 	update_pkgfile
-
-	echo 'Installing dotfiles'
-	install_dotfiles "$DOTFILES_URL"
 
 	rm /setup.sh
 }
