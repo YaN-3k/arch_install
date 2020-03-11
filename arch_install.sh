@@ -3,19 +3,22 @@
 # Drives to install to.
 DRIVE='/dev/sda'
 
-# Partitions:
+# Set partitioning method to auto/manual
+PARTITIONING='auto'
+
+# Partitions (only in use if PARTITIONING is set to auto);
 # HOME (set 0 or leave blank to not create home partition).
 HOME_SIZE='' #GB (recommend 10GB)
 
 # VAR (set 0 or leave blank to not create var partition).
-VAR_SIZE=''  #GB (recommend 5GB)
+VAR_SIZE='' #GB (recommend 5GB)
 
 # SWAP (set 0 or leave blank to not create swap partition).
 SWAP_SIZE='' #GB (recommend square root of ram)
 
 # EFI (set 0 or leave blank to not create efi partition).
 # is used if the system is to be installed on "uefi"
-EFI_SIZE=''  #MB (recommend 512MB)
+EFI_SIZE='' #MB (recommend 512MB)
 
 # System language.
 LANG='en_US'
@@ -160,6 +163,7 @@ install_packages() {
 #=======
 greeter() {
 	cat <<EOF
+
        /\\
       /  \\
      /\\   \\      Script written by Cherrry9
@@ -167,6 +171,7 @@ greeter() {
    /  '  '  \\
   / ..'  '.. \\
  /_\`        \`_\\
+
 EOF
 }
 
@@ -178,7 +183,35 @@ network() {
 	timedatectl set-ntp true
 }
 
-prepare_disk() {
+format_and_mount() {
+	# format && mount
+	mkdir -p /mnt
+	yes | mkfs.ext4 "$root"
+	mount "$root" /mnt
+
+	if [ -n "$efi" ]; then
+		mkdir -p /mnt/boot/efi
+		mkfs.fat -F32 "$efi"
+		mount "$efi" /mnt/boot/efi
+	fi
+	if [ -n "$swap" ]; then
+		mkswap "$swap"
+		swapon "$swap"
+	fi
+	if [ -n "$home" ]; then
+		mkdir -p /mnt/home
+		yes | mkfs.ext4 "$home"
+		mount "$home" /mnt/home
+	fi
+	if [ -n "$var" ]; then
+		mkdir -p /mnt/var
+		yes | mkfs.ext4 "$var"
+		mount "$var" /mnt/var
+	fi
+
+}
+
+auto_partition() {
 	drive="$1"
 	boot_type="$2"
 	efi_size="$3"
@@ -257,32 +290,61 @@ prepare_disk() {
 	# root
 	parted -s "$drive" select "$drive" mkpart primary ext4 "${var_end}MiB" 100%
 	root="${drive}$next_part"
-
-	# format && mount
-	mkdir -p /mnt
-	yes | mkfs.ext4 "$root"
-	mount "$root" /mnt
-
-	if [ -n "$efi" ]; then
-		mkdir -p /mnt/boot/efi
-		mkfs.fat -F32 "$efi"
-		mount "$efi" /mnt/boot/efi
-	fi
-	if [ -n "$swap" ]; then
-		mkswap "$swap"
-		swapon "$swap"
-	fi
-	if [ -n "$home" ]; then
-		mkdir -p /mnt/home
-		yes | mkfs.ext4 "$home"
-		mount "$home" /mnt/home
-	fi
-	if [ -n "$var" ]; then
-		mkdir -p /mnt/var
-		yes | mkfs.ext4 "$var"
-		mount "$var" /mnt/var
-	fi
 }
+
+select_disk() {
+	type="$1"
+
+	# pseudo select loop
+	while [ -z "$disk" ]; do
+		i=0
+		while read -r line; do
+			i=$((i + 1))
+			echo "$i) $line"
+		done <"$list"
+		i=$((i + 1))
+		if [ "$type" != "root" ]; then
+			echo "$i) Don't create $type partitions."
+			refuse="$i"
+		fi
+		echo "Enter disk number for $type: "
+		read -r choice
+		if [ -n "$refuse" ] && [ "$refuse" = "$choice" ]; then
+			break
+		fi
+		disk=$(sed -n "${choice}p" "$list")
+	done
+	sed "${choice}d" "$list"
+	DISK="$disk"
+	refuse=''
+}
+
+manual_partition() {
+	drive="$1"
+
+	# part
+	parted "$drive"
+
+	# select
+	list="/disks.list"
+	lsblk -nrp "$drive" | awk '/part/ { print $1" "$4 }' >"$list"
+	select_disk "root"
+	root=$DISK
+	DISK=''
+
+	select_disk "home"
+	home=$DISK
+	DISK=''
+
+	select_disk "swap"
+	swap=$DISK
+	DISK=''
+
+	select_disk "var"
+	var=$DISK
+	DISK=''
+}
+
 
 set_mirrorlist() {
 	pacman --noconfirm -Sy reflector
@@ -368,13 +430,18 @@ set_sudoers() {
 #
 # See the man page for details on how to write a sudoers file.
 #
+
 Defaults env_reset
 Defaults pwfeedback
 Defaults lecture="always"
 Defaults lecture_file="/home/$USER_NAME/.local/share/sudoers.bee"
+
 # Host alias specification
+
 # User alias specification
+
 # Cmnd alias specification
+
 # User privilege specification
 root   ALL=(ALL) ALL
 %wheel ALL=(ALL) ALL
@@ -416,6 +483,7 @@ set_pacman() {
 # /etc/pacman.conf
 #
 # See the pacman.conf(5) manpage for option and repository directives
+
 [options]
 #RootDir     = /
 #DBPath      = /var/lib/pacman/
@@ -428,11 +496,14 @@ HoldPkg     = pacman glibc
 #XferCommand = /usr/bin/wget --passive-ftp -c -O %o %u
 #CleanMethod = KeepInstalled
 Architecture = auto
+
 # Pacman won't upgrade packages listed in IgnorePkg and members of IgnoreGroup
 #IgnorePkg   =
 #IgnoreGroup =
+
 #NoUpgrade   =
 #NoExtract   =
+
 # Misc options
 #UseSyslog
 Color
@@ -440,21 +511,29 @@ TotalDownload
 CheckSpace
 VerbosePkgLists
 ILoveCandy
+
 SigLevel    = Required DatabaseOptional
 LocalFileSigLevel = Optional
 #RemoteFileSigLevel = Required
+
 #[testing]
 #Include = /etc/pacman.d/mirrorlist
+
 [core]
 Include = /etc/pacman.d/mirrorlist
+
 [extra]
 Include = /etc/pacman.d/mirrorlist
+
 #[community-testing]
 #Include = /etc/pacman.d/mirrorlist
+
 [community]
 Include = /etc/pacman.d/mirrorlist
+
 #[multilib-testing]
 #Include = /etc/pacman.d/mirrorlist
+
 #[multilib]
 #Include = /etc/pacman.d/mirrorlist
 EOF
@@ -485,7 +564,12 @@ setup() {
 	mkdir -p /mnt
 
 	BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
-	prepare_disk "$DRIVE" "$BOOT_TYPE" "$EFI_SIZE" "$SWAP_SIZE" "$HOME_SIZE" "$VAR_SIZE"
+	if [ "$PARTITIONING" = auto ]; then
+		auto_partition "$DRIVE" "$BOOT_TYPE" "$EFI_SIZE" "$SWAP_SIZE" "$HOME_SIZE" "$VAR_SIZE"
+	else
+		manual_partition "$DRIVE"
+	fi
+	format_and_mount
 
 	echo "Setting mirrorlist"
 	set_mirrorlist
