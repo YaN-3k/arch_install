@@ -4,7 +4,7 @@
 DRIVE='/dev/sdb'
 
 # Set partitioning method to auto/manual
-PARTITIONING='auto'
+PARTITIONING='manual'
 
 # Set boot type on efi/legacy
 # if blank automaticly detect
@@ -15,14 +15,14 @@ BOOT_TYPE=''
 HOME_SIZE='' #GB (recommend 10GB)
 
 # VAR (set 0 or leave blank to not create var partition).
-VAR_SIZE='' #GB (recommend 5GB)
+VAR_SIZE=''  #GB (recommend 5GB)
 
 # SWAP (set 0 or leave blank to not create swap partition).
 SWAP_SIZE='' #GB (recommend square root of ram)
 
 # EFI (set 0 or leave blank to not create efi partition).
 # is used if the system is to be installed on "uefi"
-EFI_SIZE='' #MB (recommend (or if not set) 512MB)
+EFI_SIZE=''  #MB (recommend (or if not set) 512MB)
 
 # System language.
 LANG='en_US'
@@ -225,7 +225,7 @@ auto_partition() {
 
 	# calc end
 	case $(echo "$efi_size > 0" | bc) in
-	1) efi_end="$efi_size + 1" ;;
+	1) efi_end="$((efi_size + 1))" ;;
 	*) efi_end=513 ;;
 	esac
 
@@ -265,7 +265,7 @@ auto_partition() {
 
 	# efi
 	if [ "$boot_type" = 'efi' ]; then
-		parted -s "$drive" select "$drive" mkpart primary fat32 1 "${efi_end}MiB"
+		parted -s "$drive" select "$drive" mkpart primary fat32 1MiB "${efi_end}MiB"
 		efi="${drive}$next_part"
 		next_part=$((next_part + 1))
 	fi
@@ -297,60 +297,93 @@ auto_partition() {
 }
 
 select_disk() {
+	DISK=''
+	SIZE=''
 	type="$1"
 
 	# pseudo select loop
-	while [ -z "$DISK" ]; do
+	while [ -z "$DISK" ] && [ -s "$list" ]; do
 		i=0
+		echo
 		while read -r line; do
 			i=$((i + 1))
 			echo "$i) $line"
 		done <"$list"
-		i=$((i + 1))
+
 		if [ "$type" != "root" ]; then
+			i=$((i + 1))
 			echo "$i) Don't create $type partitions."
 			refuse="$i"
 		fi
-		echo "Enter disk number for $type: "
+
+		printf "\nEnter disk number for %s: " "$type"
 		read -r choice
+
 		if [ -n "$refuse" ] && [ "$refuse" = "$choice" ]; then
-			disk=''
+			DISK=''
 			break
-		else
-			disk=$(sed -n "${choice}p" "$list")
+		elif [ -n "$choice" ]; then
+			DISK=$(sed -n "${choice}p" "$list" | awk '{print $1}')
+			SIZE=$(sed -n "${choice}p" "$list" | awk '{print $2}')
+			sed -i "${choice}d" "$list"
 		fi
-		DISK="$disk"
 	done
-	[ -n "$DISK" ] && sed "${choice}d" "$list"
-	refuse=''
 }
 
 manual_partition() {
 	drive="$1"
 
-	# part
-	parted "$drive"
+	while [ -z "$next" ] || [ "$next" != "y" ]; do
+		# part
+		cat << EOF
 
-	# select
-	list="/disks.list"
-	lsblk -nrp "$drive" | awk '/part/ { print $1" "$4 }' >"$list"
-	select_disk "root"
-	root=$DISK
-	DISK=''
+Please create root partition (/) and optional home (/home), var (/var) or swap
 
-	select_disk "home"
-	home=$DISK
-	DISK=''
+Example:
+# swap
+mkpart primary linux-swap 1MiB 2G
+# home
+mkpart primary ext4 2G 12G
+# root
+mkpart primary ext4 12G 100%
 
-	select_disk "swap"
-	swap=$DISK
-	DISK=''
+If finished, enter - "quit"
 
-	select_disk "var"
-	var=$DISK
-	DISK=''
+EOF
+		parted "$drive"
+
+		# select disks
+		list="/disks.list"
+		lsblk -nrp "$drive" | awk '/part/ { print $1" "$4 }' >"$list"
+
+		select_disk "root"
+		root="$DISK"
+		ROOT_SIZE="$SIZE"
+
+		select_disk "home"
+		home="$DISK"
+		HOME_SIZE="$SIZE"
+
+		select_disk "swap"
+		swap="$DISK"
+		SWAP_SIZE="$SIZE"
+
+		select_disk "var"
+		var="$DISK"
+		VAR_SIZE="$SIZE"
+
+		rm "$list"
+
+		echo
+		echo "root: $root $ROOT_SIZE"
+		[ -n "$home" ] && echo "home: $home $HOME_SIZE"
+		[ -n "$swap" ] && echo "swap: $swap $SWAP_SIZE"
+		[ -n "$var" ] && echo "var:  $var $VAR_SIZE"
+		echo
+		printf "Continue? [y/n] "
+		read -r next
+	done
 }
-
 
 set_mirrorlist() {
 	pacman --noconfirm -Sy reflector
@@ -559,7 +592,7 @@ setup() {
 	network
 
 	if [ -e "$DRIVE" ]; then
-		printf "%s :: Are you sure? This disk will be formatted: [yes/no] " "$DRIVE"
+		printf "%s :: Are you sure? This disk will be formatted: [y/n] " "$DRIVE"
 		read -r choice
 		[ ! "$choice" = "y" ] && exit
 	else
@@ -571,8 +604,8 @@ setup() {
 
 	if [ -z "$BOOT_TYPE" ]; then
 		BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
-		[ -n "$BOOT_TYPE" ] && 
-			BOOT_TYPE='efi'|| 
+		[ -n "$BOOT_TYPE" ] &&
+			BOOT_TYPE='efi' ||
 			BOOT_TYPE='legacy'
 	elif [ "$BOOT_TYPE" != 'efi' ] && [ "$BOOT_TYPE" != 'legacy' ]; then
 		echo "Wrong boot type: $BOOT_TYPE"
@@ -585,8 +618,6 @@ setup() {
 		manual_partition "$DRIVE"
 	fi
 	format_and_mount
-
-	exit
 
 	echo "Setting mirrorlist"
 	set_mirrorlist
