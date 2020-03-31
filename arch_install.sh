@@ -15,14 +15,14 @@ BOOT_TYPE=''
 HOME_SIZE='' #GB (recommend 10GB)
 
 # VAR (set 0 or leave blank to not create var partition).
-VAR_SIZE=''  #GB (recommend 5GB)
+VAR_SIZE='' #GB (recommend 5GB)
 
 # SWAP (set 0 or leave blank to not create swap partition).
 SWAP_SIZE='' #GB (recommend square root of ram)
 
 # EFI (set 0 or leave blank to not create efi partition).
 # is used if the system is to be installed on "uefi"
-EFI_SIZE=''  #MB (recommend (or if not set) 512MB)
+EFI_SIZE='' #MB (recommend (or if not set) 512MB)
 
 # System language.
 LANG='en_US'
@@ -335,7 +335,24 @@ manual_partition() {
 
 	while [ -z "$next" ] || [ "$next" != "y" ]; do
 		# part
-		cat << EOF
+		if [ "$BOOT_TYPE" = 'efi' ]; then
+			cat <<EOF
+
+Please create root partition (/) and efi partition (/boot/efi), optional home (/home), var (/var) or swap
+
+Example:
+# swap
+mkpart primary linux-swap 1MiB 2G
+# home
+mkpart primary ext4 2G 12G
+# root
+mkpart primary ext4 12G 100%
+
+If finished, enter - "quit"
+
+EOF
+		else
+			cat <<EOF
 
 Please create root partition (/) and optional home (/home), var (/var) or swap
 
@@ -350,11 +367,19 @@ mkpart primary ext4 12G 100%
 If finished, enter - "quit"
 
 EOF
+		fi
+
 		parted "$drive"
 
 		# select disks
 		list="/disks.list"
 		lsblk -nrp "$drive" | awk '/part/ { print $1" "$4 }' >"$list"
+
+		[ "$BOOT_TYPE" = 'efi' ] && {
+			select_disk "efi"
+			efi="$DISK"
+			EFI_SIZE="$SIZE"
+		}
 
 		select_disk "root"
 		root="$DISK"
@@ -376,6 +401,7 @@ EOF
 
 		echo
 		echo "root: $root $ROOT_SIZE"
+		[ -n "$efi" ] && echo "efi: $efi $EFI_SIZE"
 		[ -n "$home" ] && echo "home: $home $HOME_SIZE"
 		[ -n "$swap" ] && echo "swap: $swap $SWAP_SIZE"
 		[ -n "$var" ] && echo "var:  $var $VAR_SIZE"
