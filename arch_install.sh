@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # Drives to install to.
-DRIVE='/dev/sdb'
+DRIVE='/dev/sda'
 
 # Set partitioning method to auto/manual
 PARTITIONING='manual'
@@ -34,13 +34,13 @@ TIMEZONE='America/New_York'
 HOSTNAME='host'
 
 # Root password (leave blank to be prompted).
-ROOT_PASSWORD='root'
+ROOT_PASSWORD=''
 
 # Main user to create (by default, added to wheel group, and others).
-USER_NAME='a'
+USER_NAME=''
 
 # The main user's password (leave blank to be prompted).
-USER_PASSWORD='a'
+USER_PASSWORD=''
 
 KEYMAP='us'
 #KEYMAP='dvorak'
@@ -341,6 +341,8 @@ manual_partition() {
 Please create root partition (/) and efi partition (/boot/efi), optional home (/home), var (/var) or swap
 
 Example:
+# label
+mklabel gpt
 # swap
 mkpart primary linux-swap 1MiB 2G
 # home
@@ -357,6 +359,8 @@ EOF
 Please create root partition (/) and optional home (/home), var (/var) or swap
 
 Example:
+# label
+mklabel msdos
 # swap
 mkpart primary linux-swap 1MiB 2G
 # home
