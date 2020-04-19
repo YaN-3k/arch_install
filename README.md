@@ -1,29 +1,3 @@
-````
-                          ██
-                         ░██
-  ██████   ██████  █████ ░██
- ░░░░░░██ ░░██░░█ ██░░░██░██████
-  ███████  ░██ ░ ░██  ░░ ░██░░░██
- ██░░░░██  ░██   ░██   ██░██  ░██
-░░████████░███   ░░█████ ░██  ░██
- ░░░░░░░░ ░░░     ░░░░░  ░░   ░░
- ██                    ██              ██  ██
-░░                    ░██             ░██ ░██
- ██ ███████   ██████ ██████  ██████   ░██ ░██
-░██░░██░░░██ ██░░░░ ░░░██░  ░░░░░░██  ░██ ░██
-░██ ░██  ░██░░█████   ░██    ███████  ░██ ░██
-░██ ░██  ░██ ░░░░░██  ░██   ██░░░░██  ░██ ░██
-░██ ███  ░██ ██████   ░░██ ░░████████ ███ ███
-░░ ░░░   ░░ ░░░░░░     ░░   ░░░░░░░░ ░░░ ░░░
-
-  ▓▓▓▓▓▓▓▓▓▓
- ░▓ about  ▓ simple arch installer
- ░▓ author ▓ Cherrry9 <cherrry9@disroot.org>
- ░▓ code   ▓ https://github.com/Cherrry9/arch_install
- ░▓▓▓▓▓▓▓▓▓▓
- ░░░░░░░░░░
-````
-
 # simple arch installation script in posix sh
 install arch on efi/legacy with grub and additional partitions such as var, swap, home also supports manual and automatic partitioning method.
 # how it work

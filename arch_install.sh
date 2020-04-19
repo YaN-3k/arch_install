@@ -4,7 +4,7 @@
 DRIVE='/dev/sda'
 
 # Set partitioning method to auto/manual
-PARTITIONING='manual'
+PARTITIONING='auto'
 
 # Set boot type on efi/legacy
 # if blank automaticly detect
