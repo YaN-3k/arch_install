@@ -12,17 +12,17 @@ BOOT_TYPE=''
 
 # Partitions (only in use if PARTITIONING is set to auto);
 # HOME (set 0 or leave blank to not create home partition).
-HOME_SIZE='' #GB (recommend 10GB)
+HOME_SIZE='10' #GB (recommend 10GB)
 
 # VAR (set 0 or leave blank to not create var partition).
-VAR_SIZE='' #GB (recommend 5GB)
+VAR_SIZE='5' #GB (recommend 5GB)
 
 # SWAP (set 0 or leave blank to not create swap partition).
-SWAP_SIZE='' #GB (recommend square root of ram)
+SWAP_SIZE='2' #GB (recommend square root of ram)
 
 # EFI (set 0 or leave blank to not create efi partition).
 # is used if the system is to be installed on "uefi"
-EFI_SIZE='' #MB (recommend (or if not set) 512MB)
+EFI_SIZE='512' #MB (recommend (or if not set) 512MB)
 
 # System language.
 LANG='en_US'
