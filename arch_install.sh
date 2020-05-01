@@ -542,6 +542,10 @@ update_pkgfile() {
 	pkgfile -u
 }
 
+disable_pc_speaker {
+	echo "blacklist pcspkr" > /etc/modprobe.d/nobeep.conf
+}
+
 clean_packages() {
 	yes | pacman -Scc
 }
@@ -737,6 +741,9 @@ configure() {
 
 	echo 'Updating pkgfile database'
 	update_pkgfile
+
+	echo 'Disabling PC speaker'
+	disable_pc_speaker
 
 	rm /setup.sh
 }
