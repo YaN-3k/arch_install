@@ -187,113 +187,115 @@ network() {
 	timedatectl set-ntp true
 }
 
+detect_boot_type() {
+	BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
+	[ "$BOOT_TYPE" ] &&
+		BOOT_TYPE='efi' ||
+		BOOT_TYPE='legacy'
+}
+
 format_and_mount() {
 	# format && mount
 	mkdir -p /mnt
 	yes | mkfs.ext4 "$root"
 	mount "$root" /mnt
 
-	if [ -n "$efi" ]; then
+	[ "$efi" ] && {
 		mkdir -p /mnt/boot/efi
 		mkfs.fat -F32 "$efi"
 		mount "$efi" /mnt/boot/efi
-	fi
-	if [ -n "$swap" ]; then
+	}
+
+	[ "$swap" ] && {
 		mkswap "$swap"
 		swapon "$swap"
-	fi
-	if [ -n "$home" ]; then
+	}
+
+	[ "$home" ] && {
 		mkdir -p /mnt/home
 		yes | mkfs.ext4 "$home"
 		mount "$home" /mnt/home
-	fi
-	if [ -n "$var" ]; then
+	}
+
+	[ "$var" ] && {
 		mkdir -p /mnt/var
 		yes | mkfs.ext4 "$var"
 		mount "$var" /mnt/var
-	fi
-
+	}
 }
 
 auto_partition() {
-	drive="${1:-0}"
-	boot_type="$2"
-	efi_size="${3:-0}"
-	swap_size="${4:-0}"
-	home_size="${5:-0}"
-	var_size="${6:-0}"
-
 	# calc end
-	case $(echo "$efi_size > 0" | bc) in
-	1) efi_end="$((efi_size + 1))" ;;
+	case $(echo "$EFI_SIZE > 0" | bc) in
+	1) efi_end="$((EFI_SIZE + 1))" ;;
 	*) efi_end=513 ;;
 	esac
 
-	case $(echo "$swap_size > 0" | bc) in
+	case $(echo "$SWAP_SIZE > 0" | bc) in
 	1)
-		swap_end=$(echo "$swap_size * 1024 + $efi_end" | bc)
-		swap="yes"
+		swap_end=$(echo "$SWAP_SIZE * 1024 + $efi_end" | bc)
+		swap=0
 		;;
 	*) swap_end="$efi_end" ;;
 	esac
 
-	case $(echo "$home_size > 0" | bc) in
+	case $(echo "$HOME_SIZE > 0" | bc) in
 	1)
-		home_end=$(echo "$home_size * 1024 + $swap_end" | bc)
-		home="yes"
+		home_end=$(echo "$HOME_SIZE * 1024 + $swap_end" | bc)
+		home=0
 		;;
 	*) home_end="$swap_end" ;;
 	esac
 
-	case $(echo "$var_size > 0" | bc) in
+	case $(echo "$VAR_SIZE > 0" | bc) in
 	1)
-		var_end=$(echo "$var_size  * 1024 + $home_end" | bc)
-		var="yes"
+		var_end=$(echo "$VAR_SIZE  * 1024 + $home_end" | bc)
+		var=0
 		;;
 	*) var_end="$home_end" ;;
 	esac
 
 	# label mbr/gpt
 	next_part=1
-	if [ "$boot_type" = 'efi' ]; then
+	if [ "$BOOT_TYPE" = 'efi' ]; then
 		echo "Detected EFI boot"
-		parted -s "$drive" mklabel gpt
+		parted -s "$DRIVE" mklabel gpt
 	else
 		echo "Detected legacy boot"
-		parted -s "$drive" mklabel msdos
+		parted -s "$DRIVE" mklabel msdos
 	fi
 
 	# efi
-	if [ "$boot_type" = 'efi' ]; then
-		parted -s "$drive" select "$drive" mkpart primary fat32 1MiB "${efi_end}MiB"
-		efi="${drive}$next_part"
+	[ "$BOOT_TYPE" = 'efi' ] && {
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary fat32 1MiB "${efi_end}MiB"
+		efi="${DRIVE}$next_part"
 		next_part=$((next_part + 1))
-	fi
+	}
 
 	# swap
-	if [ -n "$swap" ]; then
-		parted -s "$drive" select "$drive" mkpart primary linux-swap "${efi_end}MiB" "${swap_end}MiB"
-		swap="${drive}$next_part"
+	[ "$swap" ] && {
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary linux-swap "${efi_end}MiB" "${swap_end}MiB"
+		swap="${DRIVE}$next_part"
 		next_part=$((next_part + 1))
-	fi
+	}
 
 	# home
-	if [ -n "$home" ]; then
-		parted -s "$drive" select "$drive" mkpart primary ext4 "${swap_end}MiB" "${home_end}MiB"
-		home="${drive}$next_part"
+	[ "$home" ] && {
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${swap_end}MiB" "${home_end}MiB"
+		home="${DRIVE}$next_part"
 		next_part=$((next_part + 1))
-	fi
+	}
 
 	# var
-	if [ -n "$var" ]; then
-		parted -s "$drive" select "$drive" mkpart primary ext4 "${home_end}MiB" "${var_end}MiB"
-		var="${drive}$next_part"
+	[ "$var" ] && {
+		parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${home_end}MiB" "${var_end}MiB"
+		var="${DRIVE}$next_part"
 		next_part=$((next_part + 1))
-	fi
+	}
 
 	# root
-	parted -s "$drive" select "$drive" mkpart primary ext4 "${var_end}MiB" 100%
-	root="${drive}$next_part"
+	parted -s "$DRIVE" select "$DRIVE" mkpart primary ext4 "${var_end}MiB" 100%
+	root="${DRIVE}$next_part"
 }
 
 select_disk() {
@@ -302,7 +304,7 @@ select_disk() {
 	type="$1"
 
 	# pseudo select loop
-	while [ -z "$DISK" ] && [ -s "$list" ]; do
+	while [ ! "$DISK" ] && [ -s "$list" ]; do
 		i=0
 		echo
 		while read -r line; do
@@ -319,10 +321,10 @@ select_disk() {
 		printf "\nEnter disk number for %s: " "$type"
 		read -r choice
 
-		if [ -n "$refuse" ] && [ "$refuse" = "$choice" ]; then
+		if [ "$refuse" ] && [ "$refuse" = "$choice" ]; then
 			DISK=''
 			break
-		elif [ -n "$choice" ]; then
+		elif [ "$choice" ]; then
 			DISK=$(sed -n "${choice}p" "$list" | awk '{print $1}')
 			SIZE=$(sed -n "${choice}p" "$list" | awk '{print $2}')
 			sed -i "${choice}d" "$list"
@@ -331,9 +333,7 @@ select_disk() {
 }
 
 manual_partition() {
-	drive="$1"
-
-	while [ -z "$next" ] || [ "$next" != "y" ]; do
+	while [ ! "$next" ] || [ "$next" != "y" ]; do
 		# part
 		if [ "$BOOT_TYPE" = 'efi' ]; then
 			cat <<EOF
@@ -373,11 +373,11 @@ If finished, enter - "quit"
 EOF
 		fi
 
-		parted "$drive"
+		parted "$DRIVE"
 
 		# select disks
 		list="/disks.list"
-		lsblk -nrp "$drive" | awk '/part/ { print $1" "$4 }' >"$list"
+		lsblk -nrp "$DRIVE" | awk '/part/ { print $1" "$4 }' >"$list"
 
 		[ "$BOOT_TYPE" = 'efi' ] && {
 			select_disk "efi"
@@ -405,10 +405,10 @@ EOF
 
 		echo
 		echo "root: $root $ROOT_SIZE"
-		[ -n "$efi" ] && echo "efi: $efi $EFI_SIZE"
-		[ -n "$home" ] && echo "home: $home $HOME_SIZE"
-		[ -n "$swap" ] && echo "swap: $swap $SWAP_SIZE"
-		[ -n "$var" ] && echo "var:  $var $VAR_SIZE"
+		[ "$efi" ] && echo "efi: $efi $EFI_SIZE"
+		[ "$home" ] && echo "home: $home $HOME_SIZE"
+		[ "$swap" ] && echo "swap: $swap $SWAP_SIZE"
+		[ "$var" ] && echo "var:  $var $VAR_SIZE"
 		echo
 		printf "Continue? [y/n] "
 		read -r next
@@ -426,17 +426,26 @@ install_base() {
 	genfstab -U /mnt >/mnt/etc/fstab
 }
 
-create_user() {
-	name="$1"
-	password="$2"
-	useradd -m -G adm,systemd-journal,wheel,rfkill,games,network,video,audio,optical,floppy,storage,scanner,power,sys,disk "$name"
-	printf "%s\n%s" "$password" "$password" | passwd "$name" >/dev/null 2>&1
-}
-
 unmount_filesystems() {
 	swap=$(lsblk -nrp | awk '/SWAP/ {print $1}')
-	[ -n "$swap" ] && swapoff "$swap"
+	[ "$swap" ] && swapoff "$swap"
 	umount -R /mnt
+}
+
+arch_chroot() {
+	cp "$0" /mnt/setup.sh
+	cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
+	arch-chroot /mnt bash -c "./setup.sh chroot $BOOT_TYPE"
+
+	if [ -f /mnt/setup.sh ]; then
+		echo 'ERROR: Something failed inside the chroot, not unmounting filesystems so you can investigate.'
+		echo 'Make sure you unmount everything before you try to run this script again.'
+	else
+		echo 'Unmounting filesystems'
+		unmount_filesystems
+		echo 'Done! Reboot system.'
+	fi
+
 }
 
 #===========
@@ -491,6 +500,13 @@ set_root_password() {
 	printf "%s\n%s" "$root_password" "$root_password" | passwd >/dev/null 2>&1
 }
 
+create_user() {
+	name="$1"
+	password="$2"
+	useradd -m -G adm,systemd-journal,wheel,rfkill,games,network,video,audio,optical,floppy,storage,scanner,power,sys,disk "$name"
+	printf "%s\n%s" "$password" "$password" | passwd "$name" >/dev/null 2>&1
+}
+
 set_sudoers() {
 	cat >/etc/sudoers <<EOF
 # /etc/sudoers
@@ -542,8 +558,8 @@ update_pkgfile() {
 	pkgfile -u
 }
 
-disable_pc_speaker {
-	echo "blacklist pcspkr" > /etc/modprobe.d/nobeep.conf
+disable_pc_speaker() {
+	echo "blacklist pcspkr" >>/etc/modprobe.d/nobeep.conf
 }
 
 clean_packages() {
@@ -607,8 +623,8 @@ Include = /etc/pacman.d/mirrorlist
 #[multilib-testing]
 #Include = /etc/pacman.d/mirrorlist
 
-#[multilib]
-#Include = /etc/pacman.d/mirrorlist
+[multilib]
+Include = /etc/pacman.d/mirrorlist
 EOF
 }
 
@@ -636,20 +652,18 @@ setup() {
 
 	mkdir -p /mnt
 
-	if [ -z "$BOOT_TYPE" ]; then
-		BOOT_TYPE=$(ls /sys/firmware/efi/efivars 2>/dev/null)
-		[ -n "$BOOT_TYPE" ] &&
-			BOOT_TYPE='efi' ||
-			BOOT_TYPE='legacy'
+	if [ ! "$BOOT_TYPE" ]; then
+		detect_boot_type
 	elif [ "$BOOT_TYPE" != 'efi' ] && [ "$BOOT_TYPE" != 'legacy' ]; then
 		echo "Wrong boot type: $BOOT_TYPE"
 		echo "Set to efi or legacy"
 		exit
 	fi
+
 	if [ "$PARTITIONING" = auto ]; then
-		auto_partition "$DRIVE" "$BOOT_TYPE" "$EFI_SIZE" "$SWAP_SIZE" "$HOME_SIZE" "$VAR_SIZE"
+		auto_partition
 	else
-		manual_partition "$DRIVE"
+		manual_partition
 	fi
 	format_and_mount
 
@@ -660,18 +674,7 @@ setup() {
 	install_base
 
 	echo "Chrooting to new system"
-	cp "$0" /mnt/setup.sh
-	cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist
-	arch-chroot /mnt bash -c "./setup.sh chroot $BOOT_TYPE"
-
-	if [ -f /mnt/setup.sh ]; then
-		echo 'ERROR: Something failed inside the chroot, not unmounting filesystems so you can investigate.'
-		echo 'Make sure you unmount everything before you try to run this script again.'
-	else
-		echo 'Unmounting filesystems'
-		unmount_filesystems
-		echo 'Done! Reboot system.'
-	fi
+	arch_chroot
 }
 
 configure() {
@@ -682,16 +685,15 @@ configure() {
 	set_locale "$LANG"
 
 	echo "Setting time zone"
-	if [ -z "$TIMEZONE" ] || [ ! -f "/usr/share/zoneinfo/$TIMEZONE" ]; then
-		TIMEZONE=$(tzselect)
-	fi
+	[ ! -f "/usr/share/zoneinfo/$TIMEZONE" ] && TIMEZONE=$(tzselect)
 	set_timezone "$TIMEZONE"
 
 	echo "Setting hostname"
-	if [ -z "$HOSTNAME" ]; then
+	[ ! "$HOSTNAME" ] && {
 		printf "Enter the hostname: "
 		read -r HOSTNAME
-	fi
+	}
+
 	set_hostname "$HOSTNAME"
 
 	echo "Setting hosts"
@@ -704,21 +706,21 @@ configure() {
 	set_boot "$BOOT_TYPE"
 
 	echo 'Setting root password'
-	if [ -z "$ROOT_PASSWORD" ]; then
+	[ ! "$ROOT_PASSWORD" ] && {
 		printf "Enter the root password: "
 		read -r ROOT_PASSWORD
-	fi
+	}
 	set_root_password "$ROOT_PASSWORD"
 
 	echo 'Creating initial user'
-	if [ -z "$USER_NAME" ]; then
+	[ ! "$USER_NAME" ] && {
 		printf "Enter the user name: "
 		read -r USER_NAME
-	fi
-	if [ -z "$USER_PASSWORD" ]; then
+	}
+	[ ! "$USER_PASSWORD" ] && {
 		printf "Enter the password for user %s: " "$USER_NAME"
 		read -r USER_PASSWORD
-	fi
+	}
 	create_user "$USER_NAME" "$USER_PASSWORD"
 
 	echo 'Setting sudoers'
